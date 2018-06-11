@@ -8,7 +8,7 @@ Read this in other languages: English, 日本語
 
 # 利用方法
 
-[`bin`フォルダ](https://github.com/nobu-e753/GcSwEmulator)より，対象プラットフォームのバイナリをダウンロードし
+[`bin`フォルダ](https://github.com/nobu-e753/GcSwEmulator/bin)より，対象プラットフォームのバイナリをダウンロードし
 コマンドラインで次のように起動してください．対象プラットフォームのバイナリが存在しない場合は，下記に示す環境にて
 ビルドを行ってください．
 
