@@ -1,7 +1,7 @@
 # GcSwEmulator
 GcSwemulator は，ディジタルゲーム拡張のためのミドルウェア [GameControllerizer](https://github.com/nobu-e753/GameControllerizer) の補助機能であり，
 各ゲームプラットフォームに対する入力を電子的に模擬するS/Wです．
-起動時に指定したホスト（Node-REDサーバーを想定）より[DSL4GC](https://github.com/nobu-e753/GcScannerJs)フォーマットの
+起動時に指定したホスト（Node-REDサーバーを想定）より[DSL4GC](https://github.com/nobu-e753/GameControllerizer/blob/master/dsl4gc/README.md)フォーマットの
 制御信号を受け取とり，これを再生します．
 
 Read this in other languages: English, 日本語
