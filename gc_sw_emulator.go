@@ -56,7 +56,7 @@ func (s *MqttSub) Start(
 	aChMouse chan<- GcimlMouse, aChKeyboard chan<- GcimlKeyboard) {
 
 	tToken := s.mMqttClient.Subscribe(
-		aTopic,
+		aTopic+"/#",
 		0,
 		func(_ MQTT.Client, aMsg MQTT.Message) {
 			tTopicHierarchy := strings.Split(aMsg.Topic(), "/")
@@ -171,8 +171,8 @@ func main() {
 	fmt.Printf("[*] GcSwEmulator\n")
 	fmt.Printf(" - MQTT host : %v\n", *tMqttHost)
 	fmt.Printf(" - MQTT port : %v\n", *tMqttPort)
-	fmt.Printf(" - MQTT topic : '%v/mouse'\n", *tMqttTopic)
-	fmt.Printf("                '%v/keyboard'\n", *tMqttTopic)
+	fmt.Printf(" - MQTT topic(sub) : '%v/mouse'\n", *tMqttTopic)
+	fmt.Printf("                     '%v/keyboard'\n", *tMqttTopic)
 
 	tChMouse := make(chan GcimlMouse, 32)
 	tChKeyboard := make(chan GcimlKeyboard, 32)
