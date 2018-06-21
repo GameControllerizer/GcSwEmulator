@@ -14,13 +14,13 @@ import (
 	"github.com/go-vgo/robotgo"
 )
 
-type GcimlMouse struct {
+type GcWordMouse struct {
 	Btn []int  `json:"btn"`
 	Mov [2]int `json:"mov"`
 	Dur int    `json:"dur"`
 }
 
-type GcimlKeyboard struct {
+type GcWordKeyboard struct {
 	Key []string `json:"key"`
 	Mod []int    `json:"mod"`
 	Dur int      `json:"dur"`
@@ -53,7 +53,7 @@ func NewMqttClient(aHost string, aPort int64, aId string) *MqttSub {
 
 func (s *MqttSub) Start(
 	aTopic string,
-	aChMouse chan<- GcimlMouse, aChKeyboard chan<- GcimlKeyboard) {
+	aChMouse chan<- GcWordMouse, aChKeyboard chan<- GcWordKeyboard) {
 
 	tToken := s.mMqttClient.Subscribe(
 		aTopic+"/#",
@@ -65,19 +65,19 @@ func (s *MqttSub) Start(
 
 			switch tDevice {
 			case "mouse":
-				var tGcimlList []GcimlMouse
-				if tError := json.Unmarshal(tPayload, &tGcimlList); tError != nil {
+				var tGcSentence []GcWordMouse
+				if tError := json.Unmarshal(tPayload, &tGcSentence); tError != nil {
 					fmt.Println(" [!]", tError)
 				}
-				for _, c := range tGcimlList {
+				for _, c := range tGcSentence {
 					aChMouse <- c
 				}
 			case "keyboard":
-				var tGcimlList []GcimlKeyboard
-				if tError := json.Unmarshal(tPayload, &tGcimlList); tError != nil {
+				var tGcSentence []GcWordKeyboard
+				if tError := json.Unmarshal(tPayload, &tGcSentence); tError != nil {
 					fmt.Println(" [!]", tError)
 				}
-				for _, c := range tGcimlList {
+				for _, c := range tGcSentence {
 					aChKeyboard <- c
 				}
 			}
@@ -174,18 +174,18 @@ func main() {
 	fmt.Printf(" - MQTT topic(sub) : '%v/mouse'\n", *tMqttTopic)
 	fmt.Printf("                     '%v/keyboard'\n", *tMqttTopic)
 
-	tChMouse := make(chan GcimlMouse, 32)
-	tChKeyboard := make(chan GcimlKeyboard, 32)
+	tChMouse := make(chan GcWordMouse, 32)
+	tChKeyboard := make(chan GcWordKeyboard, 32)
 
 	go func() {
-		var tPrevBtn int = 0
+		tPrevBtn := 0
 		tBtnToggle := [2]string{"up", "down"}
 		tBtnName := [3]string{"left", "right", "center"}
 		for {
-			tGciml := <-tChMouse
-			fmt.Println(" - mouse : ", tGciml)
+			tGcWord := <-tChMouse
+			fmt.Println(" - mouse : ", tGcWord)
 			var tLatestBtn = 0x00
-			for _, id := range tGciml.Btn {
+			for _, id := range tGcWord.Btn {
 				tLatestBtn |= 0x01 << uint(id)
 			}
 			tBtnChange := tPrevBtn ^ tLatestBtn
@@ -195,31 +195,30 @@ func main() {
 					robotgo.MouseToggle(tBtnToggle[tLatestBtn&tBtnMask], tBtnName[i])
 				}
 			}
-			if tGciml.Mov[0] != 0 || tGciml.Mov[1] != 0 {
+			if tGcWord.Mov[0] != 0 || tGcWord.Mov[1] != 0 {
 				tX, tY := robotgo.GetMousePos()
-				tNewX := tX + tGciml.Mov[0]
-				tNewY := tY + tGciml.Mov[1]
+				tNewX := tX + tGcWord.Mov[0]
+				tNewY := tY + tGcWord.Mov[1]
 				robotgo.MoveMouse(tNewX, tNewY)
 			}
 			tPrevBtn = tLatestBtn
-			if tGciml.Dur > 0 {
-				tDur := time.Duration(float32(tGciml.Dur) * FRAME_CYCLE_MS)
+			if tGcWord.Dur > 0 {
+				tDur := time.Duration(float32(tGcWord.Dur) * FRAME_CYCLE_MS)
 				time.Sleep(tDur * time.Millisecond)
 			}
 		}
 	}()
 
 	go func() {
+		tPrevKey := []string{}
+		tPrevMod := []string{}
 		tModName := []string{"control", "shift", "alt"}
 		for {
-			tGciml := <-tChKeyboard
-			fmt.Println(" - keyboard : ", tGciml)
+			tGcWord := <-tChKeyboard
+			fmt.Println(" - keyboard : ", tGcWord)
 
-			tMod := []string{}
-			for _, id := range tGciml.Mod {
-				tMod = append(tMod, tModName[id])
-			}
-			for _, keyname := range tGciml.Key {
+			// release keys
+			for _, keyname := range tGcWord.Key {
 				if k := MAP_KEY[keyname]; k != "" {
 					if len(tMod) > 0 {
 						robotgo.KeyTap(k, tMod)
@@ -228,8 +227,22 @@ func main() {
 					}
 				}
 			}
-			if tGciml.Dur > 0 {
-				tDur := time.Duration(float32(tGciml.Dur) * FRAME_CYCLE_MS)
+
+			tMod := []string{}
+			for _, id := range tGcWord.Mod {
+				tMod = append(tMod, tModName[id])
+			}
+			for _, keyname := range tGcWord.Key {
+				if k := MAP_KEY[keyname]; k != "" {
+					if len(tMod) > 0 {
+						robotgo.KeyTap(k, tMod)
+					} else {
+						robotgo.KeyTap(k)
+					}
+				}
+			}
+			if tGcWord.Dur > 0 {
+				tDur := time.Duration(float32(tGcWord.Dur) * FRAME_CYCLE_MS)
 				time.Sleep(tDur * time.Millisecond)
 			}
 		}
