@@ -164,7 +164,7 @@ func main() {
 
 	var tMqttHost = flag.String("mh", "127.0.0.1", "MQTT host")
 	var tMqttPort = flag.Int64("mp", 1883, "MQTT port")
-	var tMqttTopic = flag.String("mt", "#", "MQTT port")
+	var tMqttTopic = flag.String("mt", "dev", "MQTT topic")
 	var tMqttId = flag.String("mi", "GcSwEmulator", "MQTT client id")
 	flag.Parse()
 
