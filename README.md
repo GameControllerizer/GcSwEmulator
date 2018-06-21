@@ -12,7 +12,7 @@ Read this in other languages: [English](./README.en.md), [日本語](./README.md
 対象プラットフォームのバイナリが存在しない場合は，下記に示す環境にてビルドを行ってください．
 
 ```
-% gc_sw_emulator.exe -h
+% GcSwEmulator_xxxxxx.exe -h
 ```
 
 # 動作条件
