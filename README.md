@@ -12,7 +12,7 @@ Read this in other languages: [English](./README.en.md), [日本語](./README.md
 対象プラットフォームのバイナリが存在しない場合は，下記に示す環境にてビルドを行ってください．
 
 ```
-% gc_sw_emulator.exe -h
+% GcSwEmulator_xxxxxx.exe -h
 ```
 
 # 動作条件
@@ -23,6 +23,7 @@ Read this in other languages: [English](./README.en.md), [日本語](./README.md
 Go言語で実装されており，ビルドし直すことで Windows/Mac/Linux の各プラットフォームで動作します．
 現時点で実績のある動作環境は以下です．
 - Windows10(64bit)
+- macOS Sierra v10.12.6 (64bit)
 - Ubuntu 16.04(64bit)
     - 仮想環境上（VirtualBox）ではマウスの動作がおかしくなる現象が確認されています
 
