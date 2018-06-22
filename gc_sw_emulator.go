@@ -10,8 +10,9 @@ import (
 	"syscall"
 	"time"
 
-	MQTT "github.com/eclipse/paho.mqtt.golang"
-	"github.com/go-vgo/robotgo"
+	Set "github.com/deckarep/golang-set"
+	Mqtt "github.com/eclipse/paho.mqtt.golang"
+	Robot "github.com/go-vgo/robotgo"
 )
 
 type GcWordMouse struct {
@@ -30,21 +31,21 @@ type GcWordKeyboard struct {
  * MQTT Client
  */
 type MqttSub struct {
-	mMqttClient MQTT.Client
+	mMqttClient Mqtt.Client
 }
 
 func NewMqttClient(aHost string, aPort int64, aId string) *MqttSub {
 	s := &MqttSub{}
 
 	tBrokerAddr := fmt.Sprintf("tcp://%s:%d", aHost, aPort)
-	tOpts := MQTT.NewClientOptions()
+	tOpts := Mqtt.NewClientOptions()
 	tOpts.AddBroker(tBrokerAddr)
 	tOpts.SetClientID(aId)
-	tOpts.SetOnConnectHandler(func(_ MQTT.Client) {
+	tOpts.SetOnConnectHandler(func(_ Mqtt.Client) {
 		fmt.Println("[*] MQTT client is ONLINE")
 	})
 
-	s.mMqttClient = MQTT.NewClient(tOpts)
+	s.mMqttClient = Mqtt.NewClient(tOpts)
 	if tToken := s.mMqttClient.Connect(); tToken.Wait() && tToken.Error() != nil {
 		panic(tToken.Error())
 	}
@@ -58,7 +59,7 @@ func (s *MqttSub) Start(
 	tToken := s.mMqttClient.Subscribe(
 		aTopic+"/#",
 		0,
-		func(_ MQTT.Client, aMsg MQTT.Message) {
+		func(_ Mqtt.Client, aMsg Mqtt.Message) {
 			tTopicHierarchy := strings.Split(aMsg.Topic(), "/")
 			tDevice := tTopicHierarchy[len(tTopicHierarchy)-1]
 			tPayload := aMsg.Payload()
@@ -96,6 +97,8 @@ func (s *MqttSub) Stop() {
  */
 const FRAME_CYCLE_MS = (1000 / 60.0)
 
+var MAP_BTN = [3]string{"left", "right", "center"}
+var MAP_MOD = [3]string{"control", "shift", "alt"}
 var MAP_KEY = map[string]string{
 	"a":          "a",
 	"b":          "b",
@@ -178,72 +181,87 @@ func main() {
 	tChKeyboard := make(chan GcWordKeyboard, 32)
 
 	go func() {
-		tPrevBtn := 0
-		tBtnToggle := [2]string{"up", "down"}
-		tBtnName := [3]string{"left", "right", "center"}
+		tPrevBtn := Set.NewSet()
 		for {
 			tGcWord := <-tChMouse
 			fmt.Println(" - mouse : ", tGcWord)
-			var tLatestBtn = 0x00
+			tLatestBtn := Set.NewSet()
 			for _, id := range tGcWord.Btn {
-				tLatestBtn |= 0x01 << uint(id)
+				tLatestBtn.Add(MAP_BTN[id])
 			}
-			tBtnChange := tPrevBtn ^ tLatestBtn
-			for i := uint(0); i < 3; i++ {
-				tBtnMask := 0x01 << i
-				if tBtnChange&tBtnMask > 0 {
-					robotgo.MouseToggle(tBtnToggle[tLatestBtn&tBtnMask], tBtnName[i])
-				}
+			// get changed buttons
+			tUppedBtn := tPrevBtn.Difference(tLatestBtn)
+			for b := range tUppedBtn.Iter() {
+				Robot.MouseToggle("up", b)
+			}
+			tDownedBtn := tLatestBtn.Difference(tPrevBtn)
+			for b := range tDownedBtn.Iter() {
+				Robot.MouseToggle("down", b)
 			}
 			if tGcWord.Mov[0] != 0 || tGcWord.Mov[1] != 0 {
-				tX, tY := robotgo.GetMousePos()
+				tX, tY := Robot.GetMousePos()
 				tNewX := tX + tGcWord.Mov[0]
 				tNewY := tY + tGcWord.Mov[1]
-				robotgo.MoveMouse(tNewX, tNewY)
+				Robot.MoveMouse(tNewX, tNewY)
 			}
 			tPrevBtn = tLatestBtn
 			if tGcWord.Dur > 0 {
 				tDur := time.Duration(float32(tGcWord.Dur) * FRAME_CYCLE_MS)
 				time.Sleep(tDur * time.Millisecond)
+				if len(tChMouse) == 0 {
+					for b := range tDownedBtn.Iter() {
+						Robot.MouseToggle("up", b)
+					}
+					for b := range tPrevBtn.Iter() {
+						Robot.MouseToggle("up", b)
+					}
+					tPrevBtn = Set.NewSet()
+				}
 			}
 		}
 	}()
 
 	go func() {
-		tPrevKey := []string{}
-		tPrevMod := []string{}
-		tModName := []string{"control", "shift", "alt"}
+		tPrevKey := Set.NewSet()
 		for {
 			tGcWord := <-tChKeyboard
 			fmt.Println(" - keyboard : ", tGcWord)
 
-			// release keys
+			tLatestKey := Set.NewSet()
 			for _, keyname := range tGcWord.Key {
 				if k := MAP_KEY[keyname]; k != "" {
-					if len(tMod) > 0 {
-						robotgo.KeyTap(k, tMod)
-					} else {
-						robotgo.KeyTap(k)
-					}
+					tLatestKey.Add(k)
 				}
+			}
+			for _, id := range tGcWord.Mod {
+				tLatestKey.Add(MAP_MOD[id])
 			}
 
-			tMod := []string{}
-			for _, id := range tGcWord.Mod {
-				tMod = append(tMod, tModName[id])
+			// get changed key
+			tUppedKey := tPrevKey.Difference(tLatestKey)
+			for k := range tUppedKey.Iter() {
+				Robot.KeyToggle(k.(string), "up")
 			}
-			for _, keyname := range tGcWord.Key {
-				if k := MAP_KEY[keyname]; k != "" {
-					if len(tMod) > 0 {
-						robotgo.KeyTap(k, tMod)
-					} else {
-						robotgo.KeyTap(k)
-					}
-				}
+			tDownedKey := tLatestKey.Difference(tPrevKey)
+			for k := range tDownedKey.Iter() {
+				Robot.KeyToggle(k.(string), "down")
 			}
+
+			tPrevKey = tLatestKey
+			fmt.Print(tDownedKey)
 			if tGcWord.Dur > 0 {
 				tDur := time.Duration(float32(tGcWord.Dur) * FRAME_CYCLE_MS)
 				time.Sleep(tDur * time.Millisecond)
+				if len(tChKeyboard) == 0 {
+					for k := range tDownedKey.Iter() {
+						Robot.KeyToggle(k.(string), "up")
+					}
+					for k := range tPrevKey.Iter() {
+						Robot.KeyToggle(k.(string), "up")
+					}
+					fmt.Print("upped")
+					tPrevKey = Set.NewSet()
+				}
 			}
 		}
 	}()
