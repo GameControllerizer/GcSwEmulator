@@ -31,3 +31,4 @@ Go言語で実装されており，ビルドし直すことで Windows/Mac/Linux
 - [GoLang](https://golang.org/)
 - [robotgo](https://github.com/go-vgo/robotgo)
 - [paho.mqtt.golang](https://github.com/eclipse/paho.mqtt.golang)
+- [golang-set][https://github.com/deckarep/golang-set]

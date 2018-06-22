@@ -248,7 +248,6 @@ func main() {
 			}
 
 			tPrevKey = tLatestKey
-			fmt.Print(tDownedKey)
 			if tGcWord.Dur > 0 {
 				tDur := time.Duration(float32(tGcWord.Dur) * FRAME_CYCLE_MS)
 				time.Sleep(tDur * time.Millisecond)
@@ -259,7 +258,6 @@ func main() {
 					for k := range tPrevKey.Iter() {
 						Robot.KeyToggle(k.(string), "up")
 					}
-					fmt.Print("upped")
 					tPrevKey = Set.NewSet()
 				}
 			}
