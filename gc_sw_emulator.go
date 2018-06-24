@@ -34,13 +34,12 @@ type MqttSub struct {
 	mMqttClient Mqtt.Client
 }
 
-func NewMqttClient(aHost string, aPort int64, aId string) *MqttSub {
+func NewMqttClient(aHost string, aPort int64) *MqttSub {
 	s := &MqttSub{}
 
 	tBrokerAddr := fmt.Sprintf("tcp://%s:%d", aHost, aPort)
 	tOpts := Mqtt.NewClientOptions()
 	tOpts.AddBroker(tBrokerAddr)
-	tOpts.SetClientID(aId)
 	tOpts.SetOnConnectHandler(func(_ Mqtt.Client) {
 		fmt.Println("[*] MQTT client is ONLINE")
 	})
@@ -168,7 +167,6 @@ func main() {
 	var tMqttHost = flag.String("mh", "127.0.0.1", "MQTT host")
 	var tMqttPort = flag.Int64("mp", 1883, "MQTT port")
 	var tMqttTopic = flag.String("mt", "dev", "MQTT topic")
-	var tMqttId = flag.String("mi", "GcSwEmulator", "MQTT client id")
 	flag.Parse()
 
 	fmt.Printf("[*] GcSwEmulator\n")
@@ -264,7 +262,7 @@ func main() {
 		}
 	}()
 
-	tMqttSub := NewMqttClient(*tMqttHost, *tMqttPort, *tMqttId)
+	tMqttSub := NewMqttClient(*tMqttHost, *tMqttPort)
 	tMqttSub.Start(*tMqttTopic, tChMouse, tChKeyboard)
 
 	// quit program
