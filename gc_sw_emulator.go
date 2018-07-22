@@ -6,13 +6,15 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
+	"strconv"
+	"io"
 
-	Set "github.com/deckarep/golang-set"
-	Mqtt "github.com/eclipse/paho.mqtt.golang"
-	Robot "github.com/go-vgo/robotgo"
+	ROBOT "github.com/go-vgo/robotgo"
+	SET "github.com/deckarep/golang-set"
+	MQTT "github.com/eclipse/paho.mqtt.golang"
+	WS "golang.org/x/net/websocket"
 )
 
 type GcWordMouse struct {
@@ -28,67 +30,145 @@ type GcWordKeyboard struct {
 }
 
 /**
- * MQTT Client
+ * CmdReceiver Interface
  */
-type MqttSub struct {
-	mMqttClient Mqtt.Client
+type CmdReceiver interface {
+	Start(chan<- GcWordMouse, chan<- GcWordKeyboard)
+	Stop()
 }
 
-func NewMqttClient(aHost string, aPort int64) *MqttSub {
-	s := &MqttSub{}
+/**
+ * MQTT CmdReceiver
+ */
+type MqttReceiver struct {
+	MqttClient MQTT.Client
+	Topic string
+}
 
+func NewMqttReceiver(aHost string, aPort int64, aTopic string) *MqttReceiver {
+	r := &MqttReceiver{}
+	
 	tBrokerAddr := fmt.Sprintf("tcp://%s:%d", aHost, aPort)
-	tOpts := Mqtt.NewClientOptions()
+	tOpts := MQTT.NewClientOptions()
 	tOpts.AddBroker(tBrokerAddr)
-	tOpts.SetOnConnectHandler(func(_ Mqtt.Client) {
+	tOpts.SetOnConnectHandler(func(_ MQTT.Client) {
 		fmt.Println("[*] MQTT client is ONLINE")
 	})
-
-	s.mMqttClient = Mqtt.NewClient(tOpts)
-	if tToken := s.mMqttClient.Connect(); tToken.Wait() && tToken.Error() != nil {
-		panic(tToken.Error())
+	r.MqttClient = MQTT.NewClient(tOpts)
+	if tToken := r.MqttClient.Connect(); tToken.Wait() && tToken.Error() != nil {
+		panic("MQTT connection failure")
 	}
-	return s
+	r.Topic = aTopic
+	return r
 }
 
-func (s *MqttSub) Start(
-	aTopic string,
-	aChMouse chan<- GcWordMouse, aChKeyboard chan<- GcWordKeyboard) {
+func (r *MqttReceiver) Start(aChMouse chan<- GcWordMouse, aChKeyboard chan<- GcWordKeyboard) {
 
-	tToken := s.mMqttClient.Subscribe(
-		aTopic+"/#",
+	tTokenMouse := r.MqttClient.Subscribe(
+		r.Topic + "/mouse",
 		0,
-		func(_ Mqtt.Client, aMsg Mqtt.Message) {
-			tTopicHierarchy := strings.Split(aMsg.Topic(), "/")
-			tDevice := tTopicHierarchy[len(tTopicHierarchy)-1]
+		func(_ MQTT.Client, aMsg MQTT.Message) {
 			tPayload := aMsg.Payload()
-
-			switch tDevice {
-			case "mouse":
-				var tGcSentence []GcWordMouse
-				if tError := json.Unmarshal(tPayload, &tGcSentence); tError != nil {
-					fmt.Println(" [!]", tError)
-				}
-				for _, c := range tGcSentence {
-					aChMouse <- c
-				}
-			case "keyboard":
-				var tGcSentence []GcWordKeyboard
-				if tError := json.Unmarshal(tPayload, &tGcSentence); tError != nil {
-					fmt.Println(" [!]", tError)
-				}
-				for _, c := range tGcSentence {
-					aChKeyboard <- c
-				}
+			var tGcSentence []GcWordMouse
+			if tError := json.Unmarshal(tPayload, &tGcSentence); tError != nil {
+				fmt.Println("[!] Illegal mouse command : ", tError)
+			}
+			for _, c := range tGcSentence {
+				aChMouse <- c
 			}
 		})
-	if tToken.Wait() && tToken.Error() != nil {
-		panic(tToken.Error())
+	if tTokenMouse.Wait() && tTokenMouse.Error() != nil {
+		fmt.Println(tTokenMouse.Error())
+	}
+
+	tTokenKeyboard := r.MqttClient.Subscribe(
+		r.Topic + "/keyboard",
+		0,
+		func(_ MQTT.Client, aMsg MQTT.Message) {
+			tPayload := aMsg.Payload()
+			var tGcSentence []GcWordKeyboard
+			if tError := json.Unmarshal(tPayload, &tGcSentence); tError != nil {
+				fmt.Println("[!] Illegal keyboard command : ", tError)
+			}
+			for _, c := range tGcSentence {
+				aChKeyboard <- c
+			}
+		})
+	if tTokenKeyboard.Wait() && tTokenKeyboard.Error() != nil {
+		fmt.Println(tTokenKeyboard.Error())
 	}
 }
 
-func (s *MqttSub) Stop() {
-	s.mMqttClient.Disconnect(0)
+func (r *MqttReceiver) Stop() {
+	r.MqttClient.Disconnect(0)
+}
+
+/**
+ * Ws Client
+ */
+type WsReceiver struct {
+	WsMouse *WS.Conn
+	WsKeyboard *WS.Conn
+}
+
+func NewWsReceiver(aHost string, aPort int64, aTopic string) *WsReceiver {
+	r := &WsReceiver{}
+
+	// inner function
+	newWebsocket := func(aDev string) *WS.Conn {
+		tAddr := fmt.Sprintf("%s:%d/%s/%s", aHost, aPort, aTopic, aDev)
+		tWsOriginalAddr := fmt.Sprintf("http://%s", tAddr)
+		tWsAddr := fmt.Sprintf("ws://%s", tAddr)
+	
+		tWs, tErr := WS.Dial(tWsAddr, "", tWsOriginalAddr)
+		if tErr != nil {
+			panic("Websocket connection failure : " + aDev)
+		}
+		fmt.Println("[*] Websocket is ONLINE : " + aDev)
+		return tWs
+	}
+
+	r.WsMouse = newWebsocket("mouse")
+	r.WsKeyboard = newWebsocket("keyboard")
+	return r
+}
+
+func (r *WsReceiver) Start(aChMouse chan<- GcWordMouse, aChKeyboard chan<- GcWordKeyboard) {
+
+	go func() {
+		for {
+			var tGcSentence []GcWordMouse
+			if tError := WS.JSON.Receive(r.WsMouse, &tGcSentence); tError != nil {
+				if (tError == io.EOF){
+					panic("Websocket connection lost")
+				}
+				fmt.Println(" [!] Illegal mouse command : ", tError)
+			}
+			for _, c := range tGcSentence {
+				aChMouse <- c
+			}
+		}
+	}()
+
+	go func() {
+		for {
+			var tGcSentence []GcWordKeyboard
+			if tError := WS.JSON.Receive(r.WsKeyboard, &tGcSentence); tError != nil {				
+				if (tError == io.EOF){
+					panic("Websocket connection lost")
+				}
+				fmt.Println("[!] Illegal keyboard command : ", tError)
+			}
+			for _, c := range tGcSentence {
+				aChKeyboard <- c
+			}
+		}
+	}()
+}
+
+func (r *WsReceiver) Stop() {
+	r.WsMouse.Close()
+	r.WsKeyboard.Close()
 }
 
 /**
@@ -164,43 +244,45 @@ var MAP_KEY = map[string]string{
  */
 func main() {
 
-	var tMqttHost = flag.String("mh", "127.0.0.1", "MQTT host")
-	var tMqttPort = flag.Int64("mp", 1883, "MQTT port")
-	var tMqttTopic = flag.String("mt", "dev", "MQTT topic")
+	var tHost = flag.String("host", "127.0.0.1", "MQTT/WS host")
+	var tPort = flag.Int64("port", 1883, "MQTT/WS port")
+	var tTopic = flag.String("topic", "dev", "MQTT/WS topic")
+	var tMode = flag.Int64("mode", 0, "0:MQTT, 1:Websocket")
 	flag.Parse()
 
 	fmt.Printf("[*] GcSwEmulator\n")
-	fmt.Printf(" - MQTT host : %v\n", *tMqttHost)
-	fmt.Printf(" - MQTT port : %v\n", *tMqttPort)
-	fmt.Printf(" - MQTT topic(sub) : '%v/mouse'\n", *tMqttTopic)
-	fmt.Printf("                     '%v/keyboard'\n", *tMqttTopic)
+	fmt.Printf(" - MQTT/WS host  : %v\n", *tHost)
+	fmt.Printf(" - MQTT/WS port  : %v\n", *tPort)
+	fmt.Printf(" - MQTT/WS topic : '%v/mouse'\n", *tTopic)
+	fmt.Printf("                   '%v/keyboard'\n", *tTopic)
+	fmt.Printf(" - MQTT/WS mode  : %v (0:MQTT, 1:Websocket)\n", *tMode)
 
 	tChMouse := make(chan GcWordMouse, 32)
 	tChKeyboard := make(chan GcWordKeyboard, 32)
 
 	go func() {
-		tPrevBtn := Set.NewSet()
+		tPrevBtn := SET.NewSet()
 		for {
 			tGcWord := <-tChMouse
 			fmt.Println(" - mouse : ", tGcWord)
-			tLatestBtn := Set.NewSet()
+			tLatestBtn := SET.NewSet()
 			for _, id := range tGcWord.Btn {
 				tLatestBtn.Add(MAP_BTN[id])
 			}
 			// get changed buttons
 			tUppedBtn := tPrevBtn.Difference(tLatestBtn)
 			for b := range tUppedBtn.Iter() {
-				Robot.MouseToggle("up", b)
+				ROBOT.MouseToggle("up", b)
 			}
 			tDownedBtn := tLatestBtn.Difference(tPrevBtn)
 			for b := range tDownedBtn.Iter() {
-				Robot.MouseToggle("down", b)
+				ROBOT.MouseToggle("down", b)
 			}
 			if tGcWord.Mov[0] != 0 || tGcWord.Mov[1] != 0 {
-				tX, tY := Robot.GetMousePos()
+				tX, tY := ROBOT.GetMousePos()
 				tNewX := tX + tGcWord.Mov[0]
 				tNewY := tY + tGcWord.Mov[1]
-				Robot.MoveMouse(tNewX, tNewY)
+				ROBOT.MoveMouse(tNewX, tNewY)
 			}
 			tPrevBtn = tLatestBtn
 			if tGcWord.Dur > 0 {
@@ -208,24 +290,24 @@ func main() {
 				time.Sleep(tDur * time.Millisecond)
 				if len(tChMouse) == 0 {
 					for b := range tDownedBtn.Iter() {
-						Robot.MouseToggle("up", b)
+						ROBOT.MouseToggle("up", b)
 					}
 					for b := range tPrevBtn.Iter() {
-						Robot.MouseToggle("up", b)
+						ROBOT.MouseToggle("up", b)
 					}
-					tPrevBtn = Set.NewSet()
+					tPrevBtn = SET.NewSet()
 				}
 			}
 		}
 	}()
 
 	go func() {
-		tPrevKey := Set.NewSet()
+		tPrevKey := SET.NewSet()
 		for {
 			tGcWord := <-tChKeyboard
 			fmt.Println(" - keyboard : ", tGcWord)
 
-			tLatestKey := Set.NewSet()
+			tLatestKey := SET.NewSet()
 			for _, keyname := range tGcWord.Key {
 				if k := MAP_KEY[keyname]; k != "" {
 					tLatestKey.Add(k)
@@ -238,11 +320,11 @@ func main() {
 			// get changed key
 			tUppedKey := tPrevKey.Difference(tLatestKey)
 			for k := range tUppedKey.Iter() {
-				Robot.KeyToggle(k.(string), "up")
+				ROBOT.KeyToggle(k.(string), "up")
 			}
 			tDownedKey := tLatestKey.Difference(tPrevKey)
 			for k := range tDownedKey.Iter() {
-				Robot.KeyToggle(k.(string), "down")
+				ROBOT.KeyToggle(k.(string), "down")
 			}
 
 			tPrevKey = tLatestKey
@@ -251,19 +333,27 @@ func main() {
 				time.Sleep(tDur * time.Millisecond)
 				if len(tChKeyboard) == 0 {
 					for k := range tDownedKey.Iter() {
-						Robot.KeyToggle(k.(string), "up")
+						ROBOT.KeyToggle(k.(string), "up")
 					}
 					for k := range tPrevKey.Iter() {
-						Robot.KeyToggle(k.(string), "up")
+						ROBOT.KeyToggle(k.(string), "up")
 					}
-					tPrevKey = Set.NewSet()
+					tPrevKey = SET.NewSet()
 				}
 			}
 		}
 	}()
 
-	tMqttSub := NewMqttClient(*tMqttHost, *tMqttPort)
-	tMqttSub.Start(*tMqttTopic, tChMouse, tChKeyboard)
+	var tReceiver CmdReceiver
+	switch *tMode {
+	case 0:
+		tReceiver = NewMqttReceiver(*tHost, *tPort, *tTopic)
+	case 1:
+		tReceiver = NewWsReceiver(*tHost, *tPort, *tTopic)
+	default:
+		panic("Unknown mode : " + strconv.FormatInt(*tMode, 10))
+	}
+	tReceiver.Start(tChMouse, tChKeyboard)
 
 	// quit program
 	exitSignal := make(chan os.Signal)
@@ -272,5 +362,5 @@ func main() {
 
 	close(tChMouse)
 	close(tChKeyboard)
-	tMqttSub.Stop()
+	tReceiver.Stop()
 }
